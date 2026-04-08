@@ -66,6 +66,7 @@ WP_USER="www-data"
 
 #### FUNCTIONS ################################################################
 
+
 activate_plugins() {
     local _bold _plugin _reset
     print_header 'Activate plugins'
@@ -116,6 +117,14 @@ check_requirements() {
             error_exit "docker container unavailable: ${_container}"
         fi
     done
+}
+
+
+check_user_permissions() {
+    if ! docker compose exec -T --user "$WP_USER" \
+        index-web test -w "$WEB_WP_DIR"; then \
+        error_exit "$WP_USER does not have write permissions on $WEB_WP_DIR"
+    fi
 }
 
 
@@ -411,7 +420,7 @@ update_options() {
 
 wordpress_status() {
     print_header 'Show maintenance mode status to expose any PHP Warnings'
-    wpcli-loud maintenance-mode status
+    wpcli_loud maintenance-mode status
     echo
 }
 
@@ -429,7 +438,7 @@ wpcli() {
 }
 
 
-wpcli-loud() {
+wpcli_loud() {
     # Call WP-CLI with appropriate site arguments via Docker
     docker compose exec -T --user "$WP_USER" \
         --env WP_ADMIN_USER="${WP_ADMIN_USER}" \
@@ -443,13 +452,6 @@ wpcli-loud() {
             )
 }
 
-
-check_user_permissions() {
-    if ! docker compose exec -T --user "$WP_USER" \
-        index-web test -w "$WEB_WP_DIR"; then \
-        error_exit "$WP_USER does not have write permissions on $WEB_WP_DIR"
-    fi
-}
 
 #### MAIN #####################################################################
 
