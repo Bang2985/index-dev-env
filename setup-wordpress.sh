@@ -27,14 +27,13 @@ source .env
 
 # https://en.wikipedia.org/wiki/ANSI_escape_code
 E0="$(printf "\e[0m")"        # reset
-E1="$(printf "\e[1m")"        # bold
-E30="$(printf "\e[30m")"      # black foreground
-E31="$(printf "\e[31m")"      # red foreground
-E33="$(printf "\e[33m")"      # yellow foreground
-E90="$(printf "\e[90m")"      # bright black (gray) foreground
-E97="$(printf "\e[97m")"      # bright white foreground
-E100="$(printf "\e[100m")"    # bright black (gray) background
-E107="$(printf "\e[107m")"    # bright white background
+E30="$(printf "\e[30m")"      # foreground: black
+E31="$(printf "\e[31m")"      # foreground: red
+E33="$(printf "\e[33m")"      # foreground: yellow
+E90="$(printf "\e[90m")"      # foreground: bright black (gray)
+E97="$(printf "\e[97m")"      # foreground: bright white
+E100="$(printf "\e[100m")"    # background: bright black (gray)
+E107="$(printf "\e[107m")"    # background: bright white
 OPT_DATE_FORMAT=Y-m-d
 OPT_DEFAULT_COMMENT_STATUS=closed
 OPT_PERMALINK_STRUCTURE='/%year%/%monthnum%/%day%/%postname%/'
@@ -48,55 +47,38 @@ redirection
 tablepress
 wordpress-importer
 wordpress-seo'
-
-WP_USER="www-data"
-
 # NOTE: wordfence does not play nice with Docker. Enabling it results in WP-CLI
 #       commands taking approximately 13 times longer (ex. 10.8 seconds
 #       instead of 0.8 seconds)
 PLUGINS_DEACTIVATE='
 google-analytics-for-wordpress
-wordfence
-'
+wordfence'
 PLUGINS_UNINSTALL='
-hello
-'
+hello'
 THEMES_ACTIVATE='
-vocabulary-theme
-'
+vocabulary-theme'
 THEMES_REMOVE='
 twentytwentyone
-twentytwentytwo
-'
+twentytwentytwo'
 WEB_WP_DIR=/var/www/index
 WEB_WP_URL=http://localhost:8080
-
+WP_USER="www-data"
 
 #### FUNCTIONS ################################################################
 
-format_list() {
-    local _header_match _header_replace
-    _h="${E97}${E100}"
-    _header_match='(^name *)  (status *)  (update *)  (version)'
-    _header_replace="${_h}\1${E0}  ${_h}\2${E0}  ${_h}\3${E0}  ${_h}\4${E0}"
-    sed -u -E \
-        -e"s/${_header_match}/${_header_replace}/" \
-        -e"s/(^.* inactive .*$)/${E90}\1${E0}/" \
-        -e"s/( active .*)( available )/\1${E33}\2${E0}/" \
-        -e"s/( active .*)( none )/\1${E90}\2${E0}/"
-}
-
-
 activate_plugins() {
     local _bold _plugin _reset
-    header 'Activate plugins'
+    print_header 'Activate plugins'
     for _plugin in ${PLUGINS_ACTIVATE}
     do
         if wpcli --no-color --quiet plugin is-active "${_plugin}" &> /dev/null
         then
             no_op "${_plugin} is already active"
         else
-            wpcli plugin activate "${_plugin}"
+            if ! wpcli plugin activate "${_plugin}"
+            then
+                print_error "failed to activate plugin: ${_plugin}"
+            fi
         fi
     done
     echo
@@ -105,7 +87,7 @@ activate_plugins() {
 
 activate_themes() {
     local _theme
-    header 'Activate themes'
+    print_header 'Activate themes'
     for _theme in ${THEMES_ACTIVATE}
     do
         if wpcli --no-color --quiet theme is-active "${_theme}" &> /dev/null
@@ -115,9 +97,6 @@ activate_themes() {
             wpcli theme activate "${_theme}"
         fi
     done
-    wpcli theme list --format=csv \
-        | column -s',' -t \
-        | format_list
     echo
 }
 
@@ -141,7 +120,7 @@ check_requirements() {
 
 
 composer_install() {
-    header 'Composer install'
+    print_header 'Composer install'
     docker compose run --rm index-web composer install --ansi 2>&1 \
         | sed \
             -e'/Container.*Running$/d' \
@@ -152,7 +131,7 @@ composer_install() {
 
 
 database_check() {
-    header 'Check database'
+    print_header 'Check database'
     wpcli db check --color \
         | sed -e'/^wordpress[.]wp_.*OK$/d'
     echo
@@ -160,7 +139,7 @@ database_check() {
 
 
 database_optimize() {
-    header 'Optimize database'
+    print_header 'Optimize database'
     # Only show errors and summary
     wpcli db optimize --color \
         | sed \
@@ -172,7 +151,7 @@ database_optimize() {
 
 
 database_update() {
-    header 'Update database'
+    print_header 'Update database'
     wpcli core update-db
     echo
 }
@@ -180,7 +159,7 @@ database_update() {
 
 deactivate_plugins() {
     local _bold _plugin _reset
-    header 'Deactivate plugins'
+    print_header 'Deactivate plugins'
     for _plugin in ${PLUGINS_DEACTIVATE}
     do
         if wpcli --no-color --quiet plugin is-active "${_plugin}" &> /dev/null
@@ -196,17 +175,17 @@ deactivate_plugins() {
 
 environment_info() {
     local _key _val IFS
-    header 'Container information'
+    print_header 'Container information'
 
     # index-db
-    printf "${E1}%s${E0} - %s\n" 'index-db' \
+    printf "${E97}%s${E0} - %s\n" 'index-db' \
         'Database server for WordPress'
     print_key_val 'MariaDB version' \
         "$(echo; docker compose exec index-db mariadb --version)"
     echo
 
     # index-web
-    printf "${E1}%s${E0} - %s\n" 'index-web' \
+    printf "${E97}%s${E0} - %s\n" 'index-web' \
         'Web server (WordPress and static HTML components)'
     print_var WEB_WP_URL
     print_var WEB_WP_DIR
@@ -234,20 +213,46 @@ environment_info() {
 
 error_exit() {
     # Echo error message and exit with error
-    echo -e "${E31}ERROR:${E0} ${*}" 1>&2
+    print_error "${*}"
     exit 1
 }
 
 
-header() {
-    # Print 80 character wide black on white heading with time
-    printf "${E30}${E107} %-71s$(date '+%T') ${E0}\n" "${@}"
+format_plugin_list() {
+    local _h _hm _hr
+    _h="${E97}${E100}"
+    # header match
+    _hm='(^name *)  (status *)  (update *)  (version)  (update_version)'
+    _hm="${_hm}  (auto_update)  (requires)  (requires_php)"
+    # header replace
+    _hr="${_h}\1${E0}  ${_h}\2${E0}  ${_h}\3${E0}  ${_h}\4${E0}  ${_h}\5${E0}"
+    _hr="${_hr}  ${_h}\6${E0}  ${_h}\7${E0}  ${_h}\8${E0}"
+    sed -u -E \
+        -e"s/${_hm}/${_hr}/" \
+        -e"s/(^.* inactive .*$)/${E90}\1${E0}/" \
+        -e"s/( active .*)( available )/\1${E33}\2${E0}/"
+}
+
+
+format_themes_list() {
+    local _h _hm _hr
+    _h="${E97}${E100}"
+    # header match
+    _hm='(^name *)  (status *)  (update *)  (version)  (update_version)'
+    _hm="${_hm}  (auto_update)"
+    # header replace
+    _hr="${_h}\1${E0}  ${_h}\2${E0}  ${_h}\3${E0}  ${_h}\4${E0}  ${_h}\5${E0}"
+    _hr="${_hr}  ${_h}\6${E0}"
+    sed -u -E \
+        -e"s/${_hm}/${_hr}/" \
+        -e"s/(^.* inactive .*$)/${E90}\1${E0}/" \
+        -e"s/( active .*)( available )/\1${E33}\2${E0}/"
 }
 
 
 install_wordpress() {
     local _err
-    header 'Install WordPress'
+    print_header 'Install WordPress'
     if [[ -n "${WP_ADMIN_EMAIL}" ]] && [[ -n "${WP_ADMIN_EMAIL}" ]] \
         && [[ -n "${WP_ADMIN_EMAIL}" ]]
     then
@@ -274,13 +279,26 @@ install_wordpress() {
     echo
 }
 
+
 list_plugins() {
-    header 'List plugins'
+    print_header 'List plugins'
     wpcli plugin list --format=csv \
+        | sed -e's/,none,/,-,/g' -e's/,,/,-,/g' -e's/,$/,-/' \
         | column -s',' -t \
-        | format_list
+        | format_plugin_list
     echo
 }
+
+
+list_themes() {
+    print_header 'List themes'
+    wpcli theme list --format=csv \
+        | sed -e's/,none,/,-,/g' -e's/,,/,-,/g' -e's/,$/,-/' \
+        | column -s',' -t \
+        | format_themes_list
+    echo
+}
+
 
 no_op() {
     # Print no-op message"
@@ -288,8 +306,19 @@ no_op() {
 }
 
 
+print_error() {
+    echo -e "${E31}ERROR:${E0} ${*}" 1>&2
+}
+
+
 print_key_val() {
     printf "${E97}${E100}%22s${E0} %s\n" "${1}:" "${2}"
+}
+
+
+print_header() {
+    # Print 80 character wide black on white heading with time
+    printf "${E30}${E107}# %-70s$(date '+%T') ${E0}\n" "${@}"
 }
 
 
@@ -300,7 +329,7 @@ print_var() {
 
 remove_themes() {
     local _theme
-    header 'Remove extraneous themes'
+    print_header 'Remove extraneous themes'
     for _theme in ${THEMES_REMOVE}
     do
         if ! wpcli --no-color --quiet theme is-installed "${_theme}" \
@@ -317,7 +346,7 @@ remove_themes() {
 
 uninstall_plugins() {
     local _bold _plugin _reset
-    header 'Uninstall plugins'
+    print_header 'Uninstall plugins'
     for _plugin in ${PLUGINS_UNINSTALL}
     do
         if wpcli --no-color --quiet plugin is-installed "${_plugin}" \
@@ -335,7 +364,7 @@ uninstall_plugins() {
 update_options() {
     local _date_format _default_comment_status _noop _permalink_structure \
         _time_format
-    header 'Update options'
+    print_header 'Update options'
 
     _date_format=$(wpcli option get date_format)
     if [[ "${OPT_DATE_FORMAT}" != "${_date_format}" ]]
@@ -381,13 +410,26 @@ update_options() {
 
 
 wordpress_status() {
-    header 'Show maintenance mode status to expose any PHP Warnings'
-    wpcli maintenance-mode status
+    print_header 'Show maintenance mode status to expose any PHP Warnings'
+    wpcli-loud maintenance-mode status
     echo
 }
 
 
 wpcli() {
+    # Call WP-CLI with appropriate site arguments via Docker and silence
+    # warnings
+    docker compose exec -T --user "$WP_USER" \
+        --env WP_ADMIN_USER="${WP_ADMIN_USER}" \
+        --env WP_ADMIN_PASS="${WP_ADMIN_PASS}" \
+        --env WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL}" \
+        index-web \
+            /usr/local/bin/wp --path="${WEB_WP_DIR}" --url="${WEB_WP_URL}" \
+            "${@}" 2> >(sed -e'/^PHP Warning:/d' -e'/^Warning:/d')
+}
+
+
+wpcli-loud() {
     # Call WP-CLI with appropriate site arguments via Docker
     docker compose exec -T --user "$WP_USER" \
         --env WP_ADMIN_USER="${WP_ADMIN_USER}" \
@@ -395,8 +437,12 @@ wpcli() {
         --env WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL}" \
         index-web \
             /usr/local/bin/wp --path="${WEB_WP_DIR}" --url="${WEB_WP_URL}" \
-            "${@}"
+            "${@}" 2> >(
+                sed -e"s/PHP Warning:/${E33}PHP Warning:${E0}/" \
+                    -e"s/Warning:/${E33}Warning:${E0}/"
+            )
 }
+
 
 check_user_permissions() {
     if ! docker compose exec -T --user "$WP_USER" \
@@ -419,6 +465,7 @@ deactivate_plugins
 activate_plugins
 list_plugins
 activate_themes
+list_themes
 database_update
 database_optimize
 database_check
