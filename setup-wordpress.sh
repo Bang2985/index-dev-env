@@ -1,17 +1,4 @@
-#!/bin/bash
-#
-# Notes:
-# - docker compose run redirects the stderr of any invoked executables to
-#   stdout. The only messages that will appear on stderr are issued by docker
-#   compose run itself. This appears to be an undocumented "feature":
-#   https://docs.docker.com/engine/reference/commandline/compose_run/
-#
-#   The "2>/dev/null" below silences the messages from docker compose run.
-#   For example, the output like the following will not be visible:
-#       [+] Creating 2/0
-#        ✔ Container index-db  Running                                  0.0s
-#        ✔ Container index-web   Running                                  0.0s
-#
+#!/usr/bin/env bash
 set -o errexit
 set -o errtrace
 set -o nounset
@@ -32,10 +19,11 @@ E31="$(printf "\e[31m")"      # foreground: red
 E33="$(printf "\e[33m")"      # foreground: yellow
 E90="$(printf "\e[90m")"      # foreground: bright black (gray)
 E97="$(printf "\e[97m")"      # foreground: bright white
+E47="$(printf "\e[47m")"      # background: white
 E100="$(printf "\e[100m")"    # background: bright black (gray)
 E107="$(printf "\e[107m")"    # background: bright white
-OPT_DATE_FORMAT=Y-m-d
-OPT_DEFAULT_COMMENT_STATUS=closed
+OPT_DATE_FORMAT='Y-m-d'
+OPT_DEFAULT_COMMENT_STATUS='closed'
 OPT_PERMALINK_STRUCTURE='/%year%/%monthnum%/%day%/%postname%/'
 OPT_TIME_FORMAT='H:i'
 PLUGINS_ACTIVATE='
@@ -55,21 +43,22 @@ google-analytics-for-wordpress
 wordfence'
 PLUGINS_UNINSTALL='
 hello'
+SCRIPT_DIR="$(cd -P -- "${0%/*}" && pwd -P)"
 THEMES_ACTIVATE='
 vocabulary-theme'
 THEMES_REMOVE='
 twentytwentyone
 twentytwentytwo'
-WEB_WP_DIR=/var/www/index
-WEB_WP_URL=http://localhost:8080
-WP_USER="www-data"
+WEB_WP_DIR='/var/www/index'
+WEB_WP_URL='http://localhost:8080'
+WP_USER='www-data'
 
 #### FUNCTIONS ################################################################
 
 
 activate_plugins() {
     local _bold _plugin _reset
-    print_header 'Activate plugins'
+    print_header1 'Activate plugins'
     for _plugin in ${PLUGINS_ACTIVATE}
     do
         if wpcli --no-color --quiet plugin is-active "${_plugin}" &> /dev/null
@@ -88,7 +77,7 @@ activate_plugins() {
 
 activate_themes() {
     local _theme
-    print_header 'Activate themes'
+    print_header1 'Activate themes'
     for _theme in ${THEMES_ACTIVATE}
     do
         if wpcli --no-color --quiet theme is-active "${_theme}" &> /dev/null
@@ -129,7 +118,7 @@ check_user_permissions() {
 
 
 composer_install() {
-    print_header 'Composer install'
+    print_header1 'Composer install'
     docker compose run --rm index-web composer install --ansi 2>&1 \
         | sed \
             -e'/Container.*Running$/d' \
@@ -139,8 +128,56 @@ composer_install() {
 }
 
 
+container_info() {
+    local _msg
+    print_header1 'Container information'
+    # Ensure docker daemon is running
+    if [[ ! -S /var/run/docker.sock ]]
+    then
+        error_exit 'docker daemon is not running'
+    fi
+    # Ensure db service is running
+    if ! docker compose exec index-db true 2>/dev/null
+    then
+        error_exit 'docker service is not running: index-db'
+    fi
+    print_header2 'index-db container - Database server for WordPress'
+    print_key_val 'Debian version' \
+        "$(docker compose exec --no-tty 'index-db' \
+            cat /etc/debian_version)"
+    print_key_val 'MariaDB version' \
+        "$(docker compose exec --no-tty 'index-db' \
+            mariadb --version \
+                | awk -F',' '{print $1}')"
+    echo
+
+    # Ensure web service are running
+    if ! docker compose exec index-web true 2>/dev/null
+    then
+        error_exit "docker service is not running: index-web"
+    fi
+    _msg='index-web container - Web server (WordPress and static HTML'
+    _msg="${_msg} components)"
+    print_header2 "${_msg}"
+    print_key_val 'Debian version' \
+        "$(docker compose exec --no-tty 'index-web' \
+            cat /etc/debian_version)"
+    print_key_val 'PHP version' \
+        "$(docker compose exec --no-tty 'index-web' \
+            /usr/bin/php --version \
+                | awk '/^PHP/ {print $2}')"
+    print_key_val 'Composer version' \
+        "$(docker compose exec --no-tty 'index-web' \
+            composer --version 2>/dev/null \
+            | sed 's/Composer version \([^ ]*\).*/\1/')"
+    print_key_val 'WordPress version' "$(wpcli core version)"
+    print_key_val 'WP-CLI version' "$(wpcli cli version | cut -d' ' -f2)"
+    echo
+}
+
+
 database_check() {
-    print_header 'Check database'
+    print_header1 'Check database'
     wpcli db check --color \
         | sed -e'/^wordpress[.]wp_.*OK$/d'
     echo
@@ -148,7 +185,7 @@ database_check() {
 
 
 database_optimize() {
-    print_header 'Optimize database'
+    print_header1 'Optimize database'
     # Only show errors and summary
     wpcli db optimize --color \
         | sed \
@@ -160,7 +197,7 @@ database_optimize() {
 
 
 database_update() {
-    print_header 'Update database'
+    print_header1 'Update database'
     wpcli core update-db
     echo
 }
@@ -168,7 +205,7 @@ database_update() {
 
 deactivate_plugins() {
     local _bold _plugin _reset
-    print_header 'Deactivate plugins'
+    print_header1 'Deactivate plugins'
     for _plugin in ${PLUGINS_DEACTIVATE}
     do
         if wpcli --no-color --quiet plugin is-active "${_plugin}" &> /dev/null
@@ -182,44 +219,6 @@ deactivate_plugins() {
 }
 
 
-environment_info() {
-    local _key _val IFS
-    print_header 'Container information'
-
-    # index-db
-    printf "${E97}%s${E0} - %s\n" 'index-db' \
-        'Database server for WordPress'
-    print_key_val 'MariaDB version' \
-        "$(echo; docker compose exec index-db mariadb --version)"
-    echo
-
-    # index-web
-    printf "${E97}%s${E0} - %s\n" 'index-web' \
-        'Web server (WordPress and static HTML components)'
-    print_var WEB_WP_URL
-    print_var WEB_WP_DIR
-    print_key_val 'WordPress version' "$(wpcli core version)"
-    print_key_val 'PHP version' \
-        "$(docker compose exec index-web php --version \
-            | awk '/^PHP/ {print $2}')"
-    print_key_val 'Composer version' \
-        "$(docker compose run --rm index-web \
-            composer --version 2>/dev/null \
-            | sed 's/Composer version \([^ ]*\).*/\1/')"
-    IFS=$'\n'
-    for _line in $(wpcli --info | sort)
-    do
-        _key="${_line%%:*}"
-        # '| xargs' is used to trim whitespace
-        _val="$( echo "${_line#*:}" | xargs)"
-        [[ -n "${_val}" ]] || continue
-        [[ "${_key}" =~ ^WP-CLI ]] || continue
-        print_key_val "${_key}" "${_val}"
-    done
-    echo
-}
-
-
 error_exit() {
     # Echo error message and exit with error
     print_error "${*}"
@@ -227,41 +226,9 @@ error_exit() {
 }
 
 
-format_plugin_list() {
-    local _h _hm _hr
-    _h="${E97}${E100}"
-    # header match
-    _hm='(^name *)  (status *)  (update *)  (version)  (update_version)'
-    _hm="${_hm}  (auto_update)  (requires)  (requires_php)"
-    # header replace
-    _hr="${_h}\1${E0}  ${_h}\2${E0}  ${_h}\3${E0}  ${_h}\4${E0}  ${_h}\5${E0}"
-    _hr="${_hr}  ${_h}\6${E0}  ${_h}\7${E0}  ${_h}\8${E0}"
-    sed -u -E \
-        -e"s/${_hm}/${_hr}/" \
-        -e"s/(^.* inactive .*$)/${E90}\1${E0}/" \
-        -e"s/( active .*)( available )/\1${E33}\2${E0}/"
-}
-
-
-format_themes_list() {
-    local _h _hm _hr
-    _h="${E97}${E100}"
-    # header match
-    _hm='(^name *)  (status *)  (update *)  (version)  (update_version)'
-    _hm="${_hm}  (auto_update)"
-    # header replace
-    _hr="${_h}\1${E0}  ${_h}\2${E0}  ${_h}\3${E0}  ${_h}\4${E0}  ${_h}\5${E0}"
-    _hr="${_hr}  ${_h}\6${E0}"
-    sed -u -E \
-        -e"s/${_hm}/${_hr}/" \
-        -e"s/(^.* inactive .*$)/${E90}\1${E0}/" \
-        -e"s/( active .*)( available )/\1${E33}\2${E0}/"
-}
-
-
 install_wordpress() {
     local _err
-    print_header 'Install WordPress'
+    print_header1 'Install WordPress'
     if [[ -n "${WP_ADMIN_EMAIL}" ]] && [[ -n "${WP_ADMIN_EMAIL}" ]] \
         && [[ -n "${WP_ADMIN_EMAIL}" ]]
     then
@@ -289,22 +256,60 @@ install_wordpress() {
 }
 
 
+list_format1() {
+    # Normalize output and column widths
+    sed -u \
+        -e's/^name,/name                             ,/' \
+        -e's/,update,/,update     ,/' \
+        -e's/,update_version,/,update_ver,/' \
+        -e's/,none,/,-,/g' -e's/,,/,-,/g' -e's/,$/,-/' \
+        | column -s',' -t
+}
+
+
+list_format2() {
+    # Colorize column headers
+    local _h _hm _hr
+    _h="${E97}${E100}"
+    # header match
+    _hm='(^name *)  (update *)  (version)  (update_ver)  (auto_update)'
+    # header replace
+    _hr="${_h}\1${E0}  ${_h}\2${E0}  ${_h}\3${E0}  ${_h}\4${E0}  ${_h}\5${E0}"
+    sed -u -E -e"s/${_hm}/${_hr}/"
+}
+
+
+list_format3() {
+    # highlight updates available
+    sed -u -E -e"s/ (available) / ${E33}\1${E0} /"
+}
+
+
 list_plugins() {
-    print_header 'List plugins'
-    wpcli plugin list --format=csv \
-        | sed -e's/,none,/,-,/g' -e's/,,/,-,/g' -e's/,$/,-/' \
-        | column -s',' -t \
-        | format_plugin_list
+    local _fields
+    print_header1 'List plugins'
+    _fields='name,update,version,update_version,auto_update'
+    print_header2 'Active plugins'
+    wpcli plugin list --fields="${_fields}" --format=csv --status=active \
+        | list_format1 | list_format2 | list_format3
+    echo
+    print_header2 'Inactive plugins'
+    wpcli plugin list --fields="${_fields}" --format=csv --status=inactive \
+        | list_format1 | list_format2 | list_format3
     echo
 }
 
 
 list_themes() {
-    print_header 'List themes'
-    wpcli theme list --format=csv \
-        | sed -e's/,none,/,-,/g' -e's/,,/,-,/g' -e's/,$/,-/' \
-        | column -s',' -t \
-        | format_themes_list
+    print_header1 'List themes'
+    _fields='name,update,version,update_version,auto_update'
+    print_header2 'Active themes'
+    wpcli theme list --fields="${_fields}" --format=csv --status=active \
+        | list_format1 | list_format2 | list_format3
+    echo
+    print_header2 'Inactive themes'
+    wpcli theme list --fields="${_fields}" --format=csv --status=inactive \
+        | list_format1 | list_format2
     echo
 }
 
@@ -325,9 +330,15 @@ print_key_val() {
 }
 
 
-print_header() {
-    # Print 80 character wide black on white heading with time
-    printf "${E30}${E107}# %-70s$(date '+%T') ${E0}\n" "${@}"
+print_header1() {
+    # Print 80 character wide black on bright white heading with time
+    printf "${E30}${E107}# %-69s$(date '+%T') ${E0}\n" "${@}"
+}
+
+
+print_header2() {
+    # Print 80 character wide black on white heading
+    printf "${E30}${E47} %-78s ${E0}\n" "${@}"
 }
 
 
@@ -338,7 +349,7 @@ print_var() {
 
 remove_themes() {
     local _theme
-    print_header 'Remove extraneous themes'
+    print_header1 'Remove extraneous themes'
     for _theme in ${THEMES_REMOVE}
     do
         if ! wpcli --no-color --quiet theme is-installed "${_theme}" \
@@ -355,7 +366,7 @@ remove_themes() {
 
 uninstall_plugins() {
     local _bold _plugin _reset
-    print_header 'Uninstall plugins'
+    print_header1 'Uninstall plugins'
     for _plugin in ${PLUGINS_UNINSTALL}
     do
         if wpcli --no-color --quiet plugin is-installed "${_plugin}" \
@@ -373,7 +384,7 @@ uninstall_plugins() {
 update_options() {
     local _date_format _default_comment_status _noop _permalink_structure \
         _time_format
-    print_header 'Update options'
+    print_header1 'Update options'
 
     _date_format=$(wpcli option get date_format)
     if [[ "${OPT_DATE_FORMAT}" != "${_date_format}" ]]
@@ -385,8 +396,10 @@ update_options() {
     fi
 
     _default_comment_status=$(wpcli option get default_comment_status)
-    if [[ "${OPT_DEFAULT_COMMENT_STATUS}" != "${_default_comment_status}" ]]
+    if [[ "${OPT_DEFAULT_COMMENT_STATUS}" != "${_default_comment_status}" ]] \
+       && [[ -n "${_default_comment_status}" ]]
     then
+        echo "_default_comment_status: '${_default_comment_status}'"
         echo "Update default_comment_status: ${OPT_DEFAULT_COMMENT_STATUS}"
         wpcli option update default_comment_status \
             "${OPT_DEFAULT_COMMENT_STATUS}"
@@ -419,7 +432,7 @@ update_options() {
 
 
 wordpress_status() {
-    print_header 'Show maintenance mode status to expose any PHP Warnings'
+    print_header1 'Show maintenance mode status to expose any PHP Warnings'
     wpcli_loud maintenance-mode status
     echo
 }
@@ -428,7 +441,7 @@ wordpress_status() {
 wpcli() {
     # Call WP-CLI with appropriate site arguments via Docker and silence
     # warnings
-    docker compose exec -T --user "$WP_USER" \
+    docker compose exec --no-tty --user "$WP_USER" \
         --env WP_ADMIN_USER="${WP_ADMIN_USER}" \
         --env WP_ADMIN_PASS="${WP_ADMIN_PASS}" \
         --env WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL}" \
@@ -439,8 +452,9 @@ wpcli() {
 
 
 wpcli_loud() {
-    # Call WP-CLI with appropriate site arguments via Docker
-    docker compose exec -T --user "$WP_USER" \
+    # Call WP-CLI with appropriate site arguments via Docker and colorize
+    # warnings
+    docker compose exec --no-tty --user "$WP_USER" \
         --env WP_ADMIN_USER="${WP_ADMIN_USER}" \
         --env WP_ADMIN_PASS="${WP_ADMIN_PASS}" \
         --env WP_ADMIN_EMAIL="${WP_ADMIN_EMAIL}" \
@@ -455,9 +469,10 @@ wpcli_loud() {
 
 #### MAIN #####################################################################
 
+cd "${SCRIPT_DIR}"
 check_requirements
 check_user_permissions
-environment_info
+container_info
 composer_install
 install_wordpress
 update_options
