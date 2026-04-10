@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Notes:
 # - This script can only be run by Creative Commons (CC) staff--it requires
@@ -15,24 +15,29 @@ trap '_es=${?};
     printf " exited with a status of ${_es}\n";
     exit ${_es}' ERR
 
-DOCKER_WP_DIR=/var/www/index
-DOCKER_WP_URL=http://localhost:8080
+DOCKER_WP_DIR='/var/www/index'
+DOCKER_WP_URL='http://localhost:8080'
 # https://en.wikipedia.org/wiki/ANSI_escape_code
 E0="$(printf "\e[0m")"        # reset
 E1="$(printf "\e[1m")"        # bold
-E30="$(printf "\e[30m")"      # black foreground
-E31="$(printf "\e[31m")"      # red foreground
-E33="$(printf "\e[33m")"      # yellow foreground
-E43="$(printf "\e[43m")"      # yellow background
-E90="$(printf "\e[90m")"      # bright black (gray) foreground
-E92="$(printf "\e[92m")"      # bright green foreground
-E97="$(printf "\e[97m")"      # bright white foreground
-E100="$(printf "\e[100m")"    # bright black (gray) background
-E107="$(printf "\e[107m")"    # bright white background
-PROD_SERVER=index__prod
-PROD_UPLOADS_DIR=/var/www/index/wp-content/uploads
-PROD_WP_DIR=/var/www/index/wp
-PROD_WP_HOST=creativecommons.org
+E30="$(printf "\e[30m")"      # foreground: black
+E31="$(printf "\e[31m")"      # foreground: red
+E33="$(printf "\e[33m")"      # foreground: yellow
+E90="$(printf "\e[90m")"      # foreground: bright black (gray)
+E92="$(printf "\e[92m")"      # foreground: bright green
+E93="$(printf "\e[93m")"      # foreground: bright yellow
+E97="$(printf "\e[97m")"      # foreground: bright white
+E43="$(printf "\e[43m")"      # background: yellow
+E47="$(printf "\e[47m")"      # background: white
+E100="$(printf "\e[100m")"    # background: bright black (gray)
+E107="$(printf "\e[107m")"    # background: bright white
+NOTICE_STAFF="\
+⚠️ This script's pull command can only be run by Creative Commons (CC) team
+   members--it requires shell access to the legacy production server."
+PROD_SERVER='index__prod'
+PROD_UPLOADS_DIR='/var/www/index/wp-content/uploads'
+PROD_WP_DIR='/var/www/index/wp'
+PROD_WP_HOST='creativecommons.org'
 PROD_WP_URL="https://${PROD_WP_HOST}"
 declare -i RSYNC_PROT_VER_MIN=31
 # NOTE: wordfence does not play nice with Docker. Enabling it results in WP-CLI
@@ -40,9 +45,9 @@ declare -i RSYNC_PROT_VER_MIN=31
 #       instead of 0.8 seconds)
 PLUGINS_DEACTIVATE='
 google-analytics-for-wordpress
-wordfence
-'
+wordfence'
 SCRIPT_NAME="${0##*/}"
+
 # The configure_environment() function sets the following global variables:
 CACHE_SQL=''
 CACHE_DIR=''
@@ -50,14 +55,18 @@ CACHE_UPLOADS_DIR=''
 DOCKER_SQL=''
 DOCKER_WP_UPLOADS_DIR=''
 DOCKER_WP_UPLOADS_TEMP_DIR=''
+SCRIPT_DIR="$(cd -P -- "${0%/*}" && pwd -P)"
 SCRIPT_ENV=''
-SERVER_DOCROOT=''
-SERVER_POD=''
+# Linux server unimplemented
+#SERVER_DOCROOT=''
+#SERVER_POD=''
 SERVER_WP_DIR=''
 SERVER_WP_UPLOADS_DIR=''
 SERVER_WP_URL=''
+
 # The parse_command() function sets the following global variables:
 COMMAND=''
+
 # The rsync_version() function sets the following global variables:
 declare -i RSYNC_PROT_VER=0
 
@@ -107,7 +116,7 @@ danger_confirm() {
 
 deactivate_plugins() {
     local _bold _plugin _reset
-    header 'Deactivate plugins'
+    print_header1 'Deactivate plugins'
     for _plugin in ${PLUGINS_DEACTIVATE}
     do
         if wpcli --no-color --quiet plugin is-active "${_plugin}" &> /dev/null
@@ -123,7 +132,7 @@ deactivate_plugins() {
 
 delete_wordpress_uploads() {
     local _count
-    header 'Delete WordPress uploads'
+    print_header1 'Delete WordPress uploads'
     if [[ "${SCRIPT_ENV}" == 'docker' ]]
     then
         print_var DOCKER_WP_UPLOADS_DIR
@@ -149,15 +158,9 @@ error_exit() {
 }
 
 
-header() {
-    # Print 80 character wide black on white heading
-    printf "${E30}${E107} %-71s$(date '+%T') ${E0}\n" "${@}"
-}
-
-
 import_database() {
     local _sql
-    header 'Import database'
+    print_header1 'Import database'
     if [[ "${SCRIPT_ENV}" == 'docker' ]]
     then
         print_var DOCKER_SQL
@@ -174,7 +177,7 @@ import_database() {
 
 
 import_uploads() {
-    header 'Import uploads'
+    print_header1 'Import uploads'
     print_var CACHE_UPLOADS_DIR
     if [[ "${SCRIPT_ENV}" == 'docker' ]]
     then
@@ -209,7 +212,7 @@ no_op() {
 
 
 optimize_tables() {
-    header 'Optimize WordPress database tables'
+    print_header1 'Optimize WordPress database tables'
     wpcli db optimize --color \
         | sed -e'/Table does not support optimize/d' -e'/^status   : OK/d'
     echo
@@ -236,7 +239,7 @@ parse_command() {
 
 post_import_db_update_site_url() {
     local _new_url
-    header 'Post-import: Database update: Site URL'
+    print_header1 'Post-import: Database update: Site URL'
     print_var PROD_WP_URL
     if [[ "${SCRIPT_ENV}" == 'docker' ]]
     then
@@ -274,7 +277,19 @@ post_import_db_update_site_url() {
 }
 
 print_key_val() {
-    printf "${E97}${E100}%22s${E0} %s\n" "${1}:" "${2}"
+    printf "${E97}${E100}%24s${E0} %s\n" "${1}:" "${2}"
+}
+
+
+print_header1() {
+    # Print 80 character wide black on bright white heading
+    printf "${E30}${E107}# %-69s$(date '+%T') ${E0}\n" "${@}"
+}
+
+
+print_header2() {
+    # Print 80 character wide black on white heading
+    printf "${E30}${E47} %-78s ${E0}\n" "${@}"
 }
 
 
@@ -284,7 +299,7 @@ print_var() {
 
 
 pull_database() {
-    header 'Pull WordPress database'
+    print_header1 'Pull WordPress database'
     print_var PROD_SERVER
     print_var PROD_WP_DIR
     print_var CACHE_SQL
@@ -301,7 +316,7 @@ pull_database() {
 
 
 pull_uploads() {
-    header 'Pull WordPress uploads files from legacy production server'
+    print_header1 'Pull WordPress uploads files from legacy production server'
     print_var PROD_SERVER
     print_var PROD_UPLOADS_DIR
     print_var CACHE_DIR
@@ -326,7 +341,8 @@ pull_uploads() {
 
 
 rsync_version() {
-    local _rsync_version="$(rsync --version 2>&1 \
+    local _rsync_version
+    _rsync_version="$(rsync --version 2>&1 \
         | awk '/version/ {print $3", "$4" "$5" "$6}')"
     RSYNC_PROT_VER=${_rsync_version##* }
     print_key_val 'rsync version' "${_rsync_version}"
@@ -339,38 +355,13 @@ script_setup() {
     # linux server
     case $(uname) in
         Darwin)
-            header "Setup environment: local docker development"
+            print_header1 'Setup environment: local docker development'
+            CACHE_DIR=./cache
+            DOCKER_SQL="${DOCKER_WP_DIR}/cache/${PROD_WP_HOST}_export.sql"
+            DOCKER_WP_UPLOADS_DIR="${DOCKER_WP_DIR}/wp-content/uploads"
+            _var="${DOCKER_WP_DIR}/wp-content/uploads.temp"
+            DOCKER_WP_UPLOADS_TEMP_DIR="${_var}"
             SCRIPT_ENV=docker
-            print_var COMMAND
-            print_var SCRIPT_ENV
-            print_key_val "$(sw_vers --productName) version" \
-                "$(sw_vers --productVersion)"
-            rsync_version
-
-            # Ensure docker daemon is running
-            if [[ ! -S /var/run/docker.sock ]]
-            then
-                error_exit 'docker daemon is not running'
-            fi
-            # Ensure services are running
-            for _service in index-web index-db
-            do
-                if ! docker compose exec "${_service}" true 2>/dev/null
-                then
-                    error_exit "docker ${_service} service is not running"
-                fi
-            done
-            print_key_val 'Docker version' \
-                "$(docker --version | sed -e's/^Docker *version *//')"
-            print_key_val 'WordPress PHP version' \
-                "$(docker compose exec index-web php --version \
-                    | awk '/^PHP/ {print $2}')"
-            print_key_val 'WordPress version' "$(wpcli core version)"
-            print_key_val 'WP-CLI PHP version' \
-                "$(wpcli cli info | awk '/^PHP version/ {print $3}')"
-            print_key_val 'WP-CLI version' \
-                "$(wpcli cli version | cut -d' ' -f2)"
-            echo
 
             # Check execution environment
             if [[ "${PWD##*/}" != 'index-dev-env' ]]
@@ -381,7 +372,17 @@ script_setup() {
                 _err="${_err} 'index-dev-env')"
                 error_exit "${_err}"
             fi
+            mkdir -p "${CACHE_DIR}"
 
+            print_var COMMAND
+            print_var SCRIPT_ENV
+            echo
+
+            print_header2 'localhost'
+            print_key_val "$(sw_vers --productName) version" \
+                "$(sw_vers --productVersion)"
+
+            rsync_version
             # Check rsync version
             if (( RSYNC_PROT_VER < 31 ))
             then
@@ -391,18 +392,12 @@ script_setup() {
                 _err="${_err} new terminal to see new the rsync)"
                 error_exit "${_err}"
             fi
+            echo
 
-            CACHE_DIR=./cache
-            mkdir -p "${CACHE_DIR}"
-
-
-            DOCKER_WP_UPLOADS_DIR="${DOCKER_WP_DIR}/wp-content/uploads"
-            _var="${DOCKER_WP_DIR}/wp-content/uploads.temp"
-            DOCKER_WP_UPLOADS_TEMP_DIR="${_var}"
-            DOCKER_SQL="${DOCKER_WP_DIR}/cache/${PROD_WP_HOST}_export.sql"
+            verify_docker_services
             ;;
         Linux)
-            header "Setup environment: linux server"
+            print_header1 'Setup environment: linux server'
             #######################
             no_op 'unimplemented' #
             exit ##################
@@ -455,13 +450,12 @@ script_setup() {
     esac
     CACHE_UPLOADS_DIR="${CACHE_DIR}/uploads"
     CACHE_SQL="${CACHE_DIR}/${PROD_WP_HOST}_export.sql"
-    test_wordpress_installed
     staff_only_notice
 }
 
 
 show_help() {
-    header 'Usage'
+    print_header1 'Usage'
     echo "${SCRIPT_NAME} COMMAND"
     echo
     bold 'Commands'
@@ -481,9 +475,7 @@ show_help() {
 
 
 staff_only_notice() {
-    echo -n 'This script can only be run by Creative Commons (CC) staff--it'
-    echo ' requires shell'
-    echo 'access to the production server'
+    echo "${E93}${NOTICE_STAFF}${E0}"
     echo
 }
 
@@ -505,7 +497,7 @@ sudo_auth() {
 
 
 test_ssh_to_prod() {
-    header 'Test SSH connection to production server'
+    print_header1 'Test SSH connection to production server'
     print_var PROD_SERVER
     if ! ssh "${PROD_SERVER}" true
     then
@@ -525,18 +517,70 @@ test_wordpress_installed() {
 }
 
 
+verify_docker_services() {
+    local _msg
+    # Ensure docker daemon is running
+    if [[ ! -S /var/run/docker.sock ]]
+    then
+        error_exit 'docker daemon is not running'
+    fi
+    # Ensure db service is running
+    if ! docker compose exec index-db true 2>/dev/null
+    then
+        error_exit 'docker service is not running: index-db'
+    fi
+    print_header2 'index-db container - Database server for WordPress'
+    print_key_val 'Debian version' \
+        "$(docker compose exec --no-tty 'index-db' \
+            cat /etc/debian_version)"
+    print_key_val 'MariaDB version' \
+        "$(docker compose exec --no-tty 'index-db' \
+            mariadb --version \
+                | awk -F',' '{print $1}')"
+    echo
+
+    # Ensure web service are running
+    if ! docker compose exec index-web true 2>/dev/null
+    then
+        error_exit "docker service is not running: index-web"
+    fi
+    _msg='index-web container - Web server (WordPress and static HTML'
+    _msg="${_msg} components)"
+    print_header2 "${_msg}"
+    print_key_val 'Debian version' \
+        "$(docker compose exec --no-tty 'index-web' \
+            cat /etc/debian_version)"
+    print_key_val 'PHP version' \
+        "$(docker compose exec --no-tty 'index-web' \
+            /usr/bin/php --version \
+                | awk '/^PHP/ {print $2}')"
+    test_wordpress_installed
+    print_key_val 'WordPress version' "$(wpcli core version)"
+    print_key_val 'WP-CLI version' "$(wpcli cli version | cut -d' ' -f2)"
+    echo
+}
+
+
+wordpress_status() {
+    print_header1 'Show maintenance mode status to expose any PHP Warnings'
+    wpcli_loud maintenance-mode status
+    echo
+}
+
+
 wpcli() {
     case "${SCRIPT_ENV}" in
         'docker')
-        # Call WP-CLI with appropriate site arguments via Docker
-            docker compose exec index-web \
+            # Call WP-CLI with appropriate site arguments via Docker and
+            # silence warings
+            docker compose exec --no-tty index-web \
                 /usr/local/bin/wp \
                     --path="${DOCKER_WP_DIR}" \
                     --url="${DOCKER_WP_URL}" \
-                    "${@}"
+                    "${@}" 2> >(sed -e'/^PHP Warning:/d' -e'/^Warning:/d')
             ;;
         'server')
-        # Call WP-CLI with appropriate site arguments
+            # Call WP-CLI with appropriate site arguments
             /usr/local/bin/wp \
                 --path="${SERVER_WP_DIR}" \
                 --url="${SERVER_WP_URL}" \
@@ -546,8 +590,23 @@ wpcli() {
 }
 
 
+wpcli_loud() {
+    # Call WP-CLI with appropriate site arguments via Docker and colorize
+    # warnings
+    docker compose exec --no-tty index-web \
+            /usr/local/bin/wp \
+                --path="${DOCKER_WP_DIR}" \
+                --url="${DOCKER_WP_URL}" \
+                "${@}" 2> >(
+                    sed -e"s/PHP Warning:/${E33}PHP Warning:${E0}/" \
+                        -e"s/Warning:/${E33}Warning:${E0}/"
+                )
+}
+
+
 #### MAIN #####################################################################
 
+cd "${SCRIPT_DIR}"
 parse_command "${@:-}"
 case "${COMMAND}" in
     # the following are sorted by order of operations then lexicographically
@@ -570,5 +629,6 @@ case "${COMMAND}" in
         deactivate_plugins
         post_import_db_update_site_url
         optimize_tables
+        wordpress_status
         ;;
 esac
