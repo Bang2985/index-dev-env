@@ -170,6 +170,16 @@ ISSUE1433='
 /licenses/list.en/invalid/
 '
 
+# Found via:
+# ./wpcli.sh db query 'SELECT post_status, post_name, guid FROM wp_posts WHERE guid LIKE "http://localhost:8080/license%";'
+POTENTIAL_WP_COLLISIONS='
+/license-status/upcoming/2007/08/hong-kong/
+/license-status/upcoming/2007/08/thailand/
+'
+# Present, but not currently found in production
+# /license-status/upcoming/weblog/2009/11/20/weblog/19275
+# /license-status/upcoming/weblog/2009/11/20/weblog/19275
+
 #### FUNCTIONS ################################################################
 
 
@@ -269,4 +279,5 @@ test1_urls 'Issue 444 - all URLs' "${ISSUE444_FULL}"
 #test1_urls 'Issue 444 - selected URLs' "${ISSUE444_PART}"
 test1_urls 'Issue 236' "${ISSUE236}"
 test1_urls 'Compatibility' "${COMPATIBILITY}"
+test1_urls 'Potential WordPress collisions' "${POTENTIAL_WP_COLLISIONS}"
 test2_urls 'Issue 1433 (path after path)' "${ISSUE1433}"
