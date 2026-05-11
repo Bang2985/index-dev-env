@@ -155,11 +155,14 @@ ISSUE444_PART='
 '
 
 COMPATIBILITY='
-/licences/
 /licenses/publicdomain/
-/licenses/mark/1.0/
 /licenses/nc-nd/1.0/
+/licenses/mark/1.0/
 /licenses/by-nc-nd/1.0/
+/license/
+/license
+/licences
+/licence
 '
 
 ISSUE1433='
