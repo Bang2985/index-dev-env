@@ -3,13 +3,21 @@ set -o errexit
 set -o errtrace
 set -o nounset
 
+# shellcheck disable=SC2154
+trap '_es=${?};
+    printf "${0}: line ${LINENO}: \"${BASH_COMMAND}\"";
+    printf " exited with a status of ${_es}\n";
+    exit ${_es}' ERR
+
 # https://en.wikipedia.org/wiki/ANSI_escape_code
 E0="$(printf     "\e[0m")"    # reset
 E30="$(printf "\e[30m")"      # black foreground
 E31="$(printf   "\e[31m")"    # red foreground
 E32="$(printf   "\e[32m")"    # green foreground
+E36="$(printf   "\e[36m")"    # cyan foreground
 E90="$(printf   "\e[90m")"    # bright black foreground
 E92="$(printf   "\e[92m")"    # bright green foreground
+E94="$(printf   "\e[94m")"    # blue foreground
 E107="$(printf "\e[107m")"    # bright white background
 
 TARGET_HOST="${1:-http://localhost:8080}"
@@ -48,7 +56,7 @@ ISSUE236='
 '
 
 # sorted with: sort -t'/' -V -k6 -k7 -k5
-ISSUE444_FULL='
+ISSUE444='
 /licenses/by-nc-sa/1.0/il/
 /licenses/by-nc/1.0/il/
 /licenses/by-nd-nc/1.0/il/
@@ -147,13 +155,6 @@ ISSUE444_FULL='
 /licenses/by/3.0/za/
 '
 
-ISSUE444_PART='
-/licenses/by-nc-sa/1.0/il/
-/licenses/by-nc-nd/2.0/uk/
-/licenses/by-nc-nd/2.5/mk/
-/licenses/by/3.0/am/
-'
-
 COMPATIBILITY='
 /licenses/publicdomain/
 /licenses/nc-nd/1.0/
@@ -180,33 +181,60 @@ POTENTIAL_WP_COLLISIONS='
 # /license-status/upcoming/weblog/2009/11/20/weblog/19275
 # /license-status/upcoming/weblog/2009/11/20/weblog/19275
 
+DEFAULT_VERSIONS_CURRENT='
+/publicdomain/zero/
+/publicdomain/zero
+/publicdomain/mark/
+/licenses/by/
+/licenses/by-sa/
+/licenses/by-nd/
+/licenses/by-nd-nc/
+/licenses/by-nc/
+/licenses/by-nc-sa/
+/licenses/by-nc-nd
+'
+DEFAULT_VERSIONS_RETIRED='
+/publicdomain/certification/
+/licenses/sampling/
+/licenses/sampling+/
+/licenses/sa/
+/licenses/nd-nc/
+/licenses/nc/
+/licenses/nc-sampling+/
+/licenses/nc-sa/
+/licenses/devnations/
+/licenses/devnations
+'
+
 #### FUNCTIONS ################################################################
 
 
-header() {
-    # Print 80 character wide black on white heading with time
+print_header() {
+    # Print 80 character wide black on bright white heading with time
     printf "${E30}${E107}# %-69s$(date '+%T') ${E0}\n" "${@}"
 }
 
 
 test1_urls() {
-    local _location _result _path _paths _url
+    local _code _header _http _location _redirect _result _path _paths _url
     _header="${1}"
     _paths="${2}"
-    header "${_header}"
+    print_header "${_header}"
     for _path in ${_paths}
     do
         _url="${TARGET_HOST}${_path}"
         _result=$(http --headers --pretty none "${_url}?")
+        _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
         _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
+        _redirect=''
         case ${_code} in
-            200) printf "${E92}";;
-            301) printf "${E32}";;
-            310) printf "${E32}";;
-              *) printf "${E31}";;
+            200) echo -n "${E92}";;
+            301) echo -n "${E36}"; _redirect="${E36}";;
+            302) echo -n "${E94}"; _redirect="${E94}";;
+              *) echo -n "${E31}";;
         esac
-        printf "%-11s  %s${E0}\n" "HTTP/1.1 ${_code}" "${_url}"
-        if [[ "${_result}" =~ 301 ]]
+        printf "%s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}"
+        if [[ -n "${_redirect}" ]]
         then
             _result=$(http --all --follow --headers --pretty none "${_url}")
             _location=$(echo "${_result}" \
@@ -215,13 +243,12 @@ test1_urls() {
             _code=$(echo "${_result}" \
                 | awk '/^HTTP/ {print $2}' \
                 | tail -n1)
+            echo -n "${_redirect}>>>>>>>>${E0}"
             case ${_code} in
-                200) printf "${E92}";;
-                301) printf "${E32}";;
-                310) printf "${E32}";;
-                  *) printf "${E31}";;
+                200) echo -n "${E92}";;
+                  *) echo -n "${E31}";;
             esac
-            printf "%-11s  %s${E0}\n" ">>>>>>>> ${_code}" "${_location}"
+            printf "  %s  %s${E0}\n" "${_code}" "${_location}"
         fi
     done
     echo
@@ -229,55 +256,41 @@ test1_urls() {
 
 
 test2_urls() {
-    local _location _result _path _paths _url
+    local _code _header _http _location _result _path _paths _url
     _header="${1}"
     _paths="${2}"
-    header "${_header}"
+    print_header "${_header}"
     for _path in ${_paths}
     do
         _url="${TARGET_HOST}${_path}"
         _result=$(http --headers --pretty none "${_url}?")
+        _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
         _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
         case ${_code} in
-            404) printf "${E92}";;
-            301) printf "${E32}";;
-            310) printf "${E32}";;
-              *) printf "${E31}";;
+            404) echo -n "${E92}";;
+              *) echo -n "${E31}";;
         esac
-        printf "%-11s  %s${E0}\n" "HTTP/1.1 ${_code}" "${_url}"
-        if [[ "${_result}" =~ 301 ]]
-        then
-            _result=$(http --all --follow --headers --pretty none "${_url}")
-            _location=$(echo "${_result}" \
-                | awk '/^Location:/ {print $2}' \
-                | tail -n1)
-            _code=$(echo "${_result}" \
-                | awk '/^HTTP/ {print $2}' \
-                | tail -n1)
-            case ${_code} in
-                200) printf "${E92}";;
-                301) printf "${E32}";;
-                310) printf "${E32}";;
-                  *) printf "${E31}";;
-            esac
-            printf "%-11s  %s${E0}\n" ">>>>>>>> ${_code}" "${_location}"
-        fi
+        printf "%s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}"
     done
     echo
 }
 
 
+#### MAIN #####################################################################
+
+
 if [[ "${TARGET_HOST}" == 'http://localhost:8080' ]]
 then
+    print_header 'Restarting Docker service'
     docker compose restart index-web
+    echo
 fi
-
-
 test1_urls 'Ensure lowercase' "${ENSURE_LOWERCASE}"
 test1_urls 'Alternate language codes' "${ALT_LANG_CODES}"
-test1_urls 'Issue 444 - all URLs' "${ISSUE444_FULL}"
-#test1_urls 'Issue 444 - selected URLs' "${ISSUE444_PART}"
+test1_urls 'Issue 444' "${ISSUE444}"
 test1_urls 'Issue 236' "${ISSUE236}"
 test1_urls 'Compatibility' "${COMPATIBILITY}"
 test1_urls 'Potential WordPress collisions' "${POTENTIAL_WP_COLLISIONS}"
 test2_urls 'Issue 1433 (path after path)' "${ISSUE1433}"
+test1_urls 'Default versions - current' "${DEFAULT_VERSIONS_CURRENT}"
+test1_urls 'Default versions - retired' "${DEFAULT_VERSIONS_RETIRED}"
