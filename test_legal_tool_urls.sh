@@ -18,7 +18,7 @@ E36="$(printf "\e[36m")"      # foreground: cyan
 E92="$(printf "\e[92m")"      # foreground: bright green
 E94="$(printf "\e[94m")"      # foreground: bright blue
 E107="$(printf "\e[107m")"    # background: bright white
-
+declare -i FAILURES=0
 TARGET_HOST="${1:-http://localhost:8080}"
 
 ENSURE_LOWERCASE='
@@ -229,7 +229,7 @@ test_expect_found() {
     for _path in ${_paths}
     do
         _url="${TARGET_HOST}${_path}"
-        _result=$(http --headers --pretty none "${_url}?$(date +%s)")
+        _result=$(http --headers --pretty none "${_url}")
         _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
         _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
         _redirect=''
@@ -237,13 +237,13 @@ test_expect_found() {
             200) echo -n "${E92}";;
             301) echo -n "${E36}"; _redirect="${E36}";;
             302) echo -n "${E94}"; _redirect="${E94}";;
-              *) echo -n "${E31}";;
+              *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
         esac
         printf "%s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}"
         if [[ -n "${_redirect}" ]]
         then
             _result=$(http --all --follow --headers --pretty none \
-                "${_url}?$(date +%s)")
+                "${_url}")
             _location=$(echo "${_result}" \
                 | awk '/^Location:/ {print $2}' \
                 | tail -n1)
@@ -253,7 +253,7 @@ test_expect_found() {
             echo -n "${_redirect}>>>>>>>>${E0}"
             case ${_code} in
                 200) echo -n "${E92}";;
-                  *) echo -n "${E31}";;
+                  *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
             esac
             printf "  %s  %s${E0}\n" "${_code}" "${_location}"
         fi
@@ -271,12 +271,12 @@ test_expect_missing() {
     for _path in ${_paths}
     do
         _url="${TARGET_HOST}${_path}"
-        _result=$(http --headers --pretty none "${_url}?$(date +%s)")
+        _result=$(http --headers --pretty none "${_url}")
         _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
         _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
         case ${_code} in
             404) echo -n "${E92}";;
-              *) echo -n "${E31}";;
+              *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
         esac
         printf "%s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}"
     done
@@ -292,22 +292,21 @@ test_expect_rdf() {
     for _path in ${_paths}
     do
         _url="${TARGET_HOST}${_path}"
-        _result=$(http --headers --pretty none "${_url}?$(date +%s)" \
+        _result=$(http --headers --pretty none "${_url}" \
             'Accept: application/rdf+xml')
         _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
         _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
         _location=$(echo "${_result}" | awk '/^Location:/ {print $2}')
-        _location="${_location%\?*}"
         _redirect=''
         case ${_code} in
             303) echo -n "${E35}"; _redirect="${E35}";;
-              *) echo -n "${E31}";;
+              *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
         esac
         printf "%s  %s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}" \
             'Accept: application/rdf+xml'
         if [[ -n "${_redirect}" ]]
         then
-            _result=$(http --headers --pretty none "${_location}?$(date +%s)")
+            _result=$(http --headers --pretty none "${_location}")
             _content_type=$(echo "${_result}" \
                 | awk '/^Content-Type:/ {print $2}')
             _code=$(echo "${_result}" \
@@ -316,7 +315,7 @@ test_expect_rdf() {
             echo -n "${_redirect}>>>>>>>>${E0}"
             case ${_code} in
                 200) echo -n "${E92}";;
-                  *) echo -n "${E31}";;
+                  *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
             esac
             printf "  %s  %s  %s${E0}\n" "${_code}" "${_location}" \
                 "${_content_type}"
@@ -362,3 +361,10 @@ test_expect_found 'Default versions - retired' "${DEFAULT_VER_RETIRED}"
 
 echo 'https://github.com/creativecommons/sre-salt-prime/issues/253'
 test_expect_rdf 'Support request RDF/XML' "${SELECT_TOOLS_RDF}"
+
+if (( FAILURES > 0 ))
+then
+    echo
+    echo "${E31}Failures: ${FAILURES}${E0}" 1>&2
+    exit 1
+fi
