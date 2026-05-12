@@ -10,13 +10,13 @@ trap '_es=${?};
     exit ${_es}' ERR
 
 # https://en.wikipedia.org/wiki/ANSI_escape_code
-E0="$(printf     "\e[0m")"    # reset
-E30="$(printf "\e[30m")"      # black foreground
-E31="$(printf   "\e[31m")"    # red foreground
-E36="$(printf   "\e[36m")"    # cyan foreground
-E92="$(printf   "\e[92m")"    # bright green foreground
-E94="$(printf   "\e[94m")"    # blue foreground
-E107="$(printf "\e[107m")"    # bright white background
+E0="$(printf "\e[0m")"        # reset
+E30="$(printf "\e[30m")"      # foreground: black
+E31="$(printf "\e[31m")"      # foreground: red
+E36="$(printf "\e[36m")"      # foreground: cyan
+E92="$(printf "\e[92m")"      # foreground: bright green
+E94="$(printf "\e[94m")"      # foreground: bright blue
+E107="$(printf "\e[107m")"    # background: bright white
 
 TARGET_HOST="${1:-http://localhost:8080}"
 
