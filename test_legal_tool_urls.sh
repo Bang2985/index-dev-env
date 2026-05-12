@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -o errexit
 set -o errtrace
 set -o nounset
@@ -230,10 +230,14 @@ test_expect_found() {
     do
         _url="${TARGET_HOST}${_path}"
         _result=$(http --headers --pretty none "${_url}")
-        _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
-        _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
+        _http=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $1}' \
+            | tr -d '[:cntrl:]')
+        _code=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $2}' \
+            | tr -d '[:cntrl:]')
         _redirect=''
-        case ${_code} in
+        case "${_code}" in
             200) echo -n "${E92}";;
             301) echo -n "${E36}"; _redirect="${E36}";;
             302) echo -n "${E94}"; _redirect="${E94}";;
@@ -246,12 +250,14 @@ test_expect_found() {
                 "${_url}")
             _location=$(echo "${_result}" \
                 | awk '/^Location:/ {print $2}' \
-                | tail -n1)
+                | tail -n1 \
+                | tr -d '[:cntrl:]')
             _code=$(echo "${_result}" \
                 | awk '/^HTTP/ {print $2}' \
-                | tail -n1)
+                | tail -n1 \
+                | tr -d '[:cntrl:]')
             echo -n "${_redirect}>>>>>>>>${E0}"
-            case ${_code} in
+            case "${_code}" in
                 200) echo -n "${E92}";;
                   *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
             esac
@@ -272,9 +278,13 @@ test_expect_missing() {
     do
         _url="${TARGET_HOST}${_path}"
         _result=$(http --headers --pretty none "${_url}")
-        _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
-        _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
-        case ${_code} in
+        _http=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $1}' \
+            | tr -d '[:cntrl:]')
+        _code=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $2}' \
+            | tr -d '[:cntrl:]')
+        case "${_code}" in
             404) echo -n "${E92}";;
               *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
         esac
@@ -294,26 +304,38 @@ test_expect_rdf() {
         _url="${TARGET_HOST}${_path}"
         _result=$(http --headers --pretty none "${_url}" \
             'Accept: application/rdf+xml')
-        _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
-        _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
-        _location=$(echo "${_result}" | awk '/^Location:/ {print $2}')
+        _http=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $1}' \
+            | tr -d '[:cntrl:]')
+        _code=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $2}' \
+            | tr -d '[:cntrl:]')
         _redirect=''
-        case ${_code} in
+        case "${_code}" in
             303) echo -n "${E35}"; _redirect="${E35}";;
               *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
         esac
         printf "%s  %s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}" \
             'Accept: application/rdf+xml'
+        unset _result
+
         if [[ -n "${_redirect}" ]]
         then
-            _result=$(http --headers --pretty none "${_location}")
-            _content_type=$(echo "${_result}" \
-                | awk '/^Content-Type:/ {print $2}')
+            _result=$(http --all --follow --headers --pretty none "${_url}" \
+                'Accept: application/rdf+xml')
+            _location=$(echo "${_result}" \
+                | awk '/^Location:/ {print $2}' \
+                | tr -d '[:cntrl:]')
             _code=$(echo "${_result}" \
                 | awk '/^HTTP/ {print $2}' \
-                | tail -n1)
+                | tail -n1 \
+                | tr -d '[:cntrl:]')
+            _content_type=$(echo "${_result}" \
+                | awk '/^Content-Type:/ {print $2}' \
+                | tail -n1 \
+                | tr -d '[:cntrl:]')
             echo -n "${_redirect}>>>>>>>>${E0}"
-            case ${_code} in
+            case "${_code}" in
                 200) echo -n "${E92}";;
                   *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
             esac
@@ -340,7 +362,7 @@ test_expect_found 'Ensure lowercase' "${ENSURE_LOWERCASE}"
 test_expect_found 'Alternate language codes' "${ALT_LANG_CODES}"
 
 echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/444'
-test_expect_found 'Working redircts' "${ISSUE444}"
+test_expect_found 'Working redirects' "${ISSUE444}"
 
 echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/236'
 test_expect_found 'Fail gracefully when deed not found' "${ISSUE236}"
