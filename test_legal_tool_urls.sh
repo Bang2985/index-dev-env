@@ -13,6 +13,7 @@ trap '_es=${?};
 E0="$(printf "\e[0m")"        # reset
 E30="$(printf "\e[30m")"      # foreground: black
 E31="$(printf "\e[31m")"      # foreground: red
+E35="$(printf "\e[35m")"      # foreground: magenta
 E36="$(printf "\e[36m")"      # foreground: cyan
 E92="$(printf "\e[92m")"      # foreground: bright green
 E94="$(printf "\e[94m")"      # foreground: bright blue
@@ -171,7 +172,7 @@ ISSUE1433='
 
 # Found via:
 # ./wpcli.sh db query 'SELECT post_status, post_name, guid FROM wp_posts WHERE guid LIKE "http://localhost:8080/license%";'
-POTENTIAL_WP_COLLISIONS='
+WP_COLLISION_RISK='
 /license-status/upcoming/2007/08/hong-kong/
 /license-status/upcoming/2007/08/thailand/
 '
@@ -179,7 +180,7 @@ POTENTIAL_WP_COLLISIONS='
 # /license-status/upcoming/weblog/2009/11/20/weblog/19275
 # /license-status/upcoming/weblog/2009/11/20/weblog/19275
 
-DEFAULT_VERSIONS_CURRENT='
+DEFAULT_VER_CURRENT='
 /publicdomain/zero/
 /publicdomain/zero
 /publicdomain/mark/
@@ -191,7 +192,7 @@ DEFAULT_VERSIONS_CURRENT='
 /licenses/by-nc-sa/
 /licenses/by-nc-nd
 '
-DEFAULT_VERSIONS_RETIRED='
+DEFAULT_VER_RETIRED='
 /publicdomain/certification/
 /licenses/sampling/
 /licenses/sampling+/
@@ -204,6 +205,12 @@ DEFAULT_VERSIONS_RETIRED='
 /licenses/devnations
 '
 
+SELECT_TOOLS_RDF='
+/licenses/by/4.0/
+/publicdomain/zero/1.0/
+'
+
+
 #### FUNCTIONS ################################################################
 
 
@@ -213,15 +220,16 @@ print_header() {
 }
 
 
-test1_urls() {
+test_expect_found() {
+    # Success is 202, 301=>202, or 302=>202
     local _code _header _http _location _redirect _result _path _paths _url
     _header="${1}"
     _paths="${2}"
-    print_header "${_header}"
+    print_header "Test expect found: ${_header}"
     for _path in ${_paths}
     do
         _url="${TARGET_HOST}${_path}"
-        _result=$(http --headers --pretty none "${_url}?")
+        _result=$(http --headers --pretty none "${_url}?$(date +%s)")
         _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
         _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
         _redirect=''
@@ -234,7 +242,8 @@ test1_urls() {
         printf "%s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}"
         if [[ -n "${_redirect}" ]]
         then
-            _result=$(http --all --follow --headers --pretty none "${_url}")
+            _result=$(http --all --follow --headers --pretty none \
+                "${_url}?$(date +%s)")
             _location=$(echo "${_result}" \
                 | awk '/^Location:/ {print $2}' \
                 | tail -n1)
@@ -253,15 +262,16 @@ test1_urls() {
 }
 
 
-test2_urls() {
+test_expect_missing() {
+    # Success is 404
     local _code _header _http _location _result _path _paths _url
     _header="${1}"
     _paths="${2}"
-    print_header "${_header}"
+    print_header "Test expect missing: ${_header}"
     for _path in ${_paths}
     do
         _url="${TARGET_HOST}${_path}"
-        _result=$(http --headers --pretty none "${_url}?")
+        _result=$(http --headers --pretty none "${_url}?$(date +%s)")
         _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
         _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
         case ${_code} in
@@ -269,6 +279,48 @@ test2_urls() {
               *) echo -n "${E31}";;
         esac
         printf "%s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}"
+    done
+    echo
+}
+
+
+test_expect_rdf() {
+    local _code _header _http _location _redirect _result _path _paths _url
+    _header="${1}"
+    _paths="${2}"
+    print_header "Test expect RDF/XML: ${_header}"
+    for _path in ${_paths}
+    do
+        _url="${TARGET_HOST}${_path}"
+        _result=$(http --headers --pretty none "${_url}?$(date +%s)" \
+            'Accept: application/rdf+xml')
+        _http=$(echo "${_result}" | awk '/^HTTP/ {print $1}')
+        _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
+        _location=$(echo "${_result}" | awk '/^Location:/ {print $2}')
+        _location="${_location%\?*}"
+        _redirect=''
+        case ${_code} in
+            303) echo -n "${E35}"; _redirect="${E35}";;
+              *) echo -n "${E31}";;
+        esac
+        printf "%s  %s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}" \
+            'Accept: application/rdf+xml'
+        if [[ -n "${_redirect}" ]]
+        then
+            _result=$(http --headers --pretty none "${_location}?$(date +%s)")
+            _content_type=$(echo "${_result}" \
+                | awk '/^Content-Type:/ {print $2}')
+            _code=$(echo "${_result}" \
+                | awk '/^HTTP/ {print $2}' \
+                | tail -n1)
+            echo -n "${_redirect}>>>>>>>>${E0}"
+            case ${_code} in
+                200) echo -n "${E92}";;
+                  *) echo -n "${E31}";;
+            esac
+            printf "  %s  %s  %s${E0}\n" "${_code}" "${_location}" \
+                "${_content_type}"
+        fi
     done
     echo
 }
@@ -283,12 +335,30 @@ then
     docker compose restart index-web
     echo
 fi
-test1_urls 'Ensure lowercase' "${ENSURE_LOWERCASE}"
-test1_urls 'Alternate language codes' "${ALT_LANG_CODES}"
-test1_urls 'Issue 444' "${ISSUE444}"
-test1_urls 'Issue 236' "${ISSUE236}"
-test1_urls 'Compatibility' "${COMPATIBILITY}"
-test1_urls 'Potential WordPress collisions' "${POTENTIAL_WP_COLLISIONS}"
-test2_urls 'Issue 1433 (path after path)' "${ISSUE1433}"
-test1_urls 'Default versions - current' "${DEFAULT_VERSIONS_CURRENT}"
-test1_urls 'Default versions - retired' "${DEFAULT_VERSIONS_RETIRED}"
+
+test_expect_found 'Ensure lowercase' "${ENSURE_LOWERCASE}"
+
+test_expect_found 'Alternate language codes' "${ALT_LANG_CODES}"
+
+echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/444'
+test_expect_found 'Working redircts' "${ISSUE444}"
+
+echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/236'
+test_expect_found 'Fail gracefully when deed not found' "${ISSUE236}"
+
+echo 'https://github.com/creativecommons/creativecommons.org/issues/1431'
+test_expect_found 'Compatibility' "${COMPATIBILITY}"
+
+test_expect_found 'Potential WordPress collisions' "${WP_COLLISION_RISK}"
+
+echo 'https://github.com/creativecommons/tech-support/issues/1433'
+test_expect_missing 'Rewrite full valid paths' "${ISSUE1433}"
+
+echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/571'
+test_expect_found 'Default versions - current' "${DEFAULT_VER_CURRENT}"
+
+echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/571'
+test_expect_found 'Default versions - retired' "${DEFAULT_VER_RETIRED}"
+
+echo 'https://github.com/creativecommons/sre-salt-prime/issues/253'
+test_expect_rdf 'Support request RDF/XML' "${SELECT_TOOLS_RDF}"
