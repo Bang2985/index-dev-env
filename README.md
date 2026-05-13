@@ -200,7 +200,7 @@ Also see [`config/composer/composer.json`](config/composer/composer.json).
 
 | Name                                 | Version  |
 | ------------------------------------ | -------- |
-| [Vocabulary Theme][gh-vocab-theme]   | `2.4`    |
+| [Vocabulary Theme][gh-vocab-theme]   | `2.5`    |
 
 Also see [`config/composer/composer.json`](config/composer/composer.json).
 
