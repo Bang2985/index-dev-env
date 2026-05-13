@@ -373,7 +373,7 @@ test_expect_found 'Ensure lowercase' "${ENSURE_LOWERCASE}"
 test_expect_found 'Alternate language codes' "${ALT_LANG_CODES}"
 
 echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/444'
-test_expect_found 'Working redirects' "${ISSUE444}"
+test_expect_found 'Working default language index.html' "${ISSUE444}"
 
 echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/236'
 test_expect_found 'Fail gracefully when deed not found' "${ISSUE236}"
@@ -384,7 +384,7 @@ test_expect_found 'Compatibility' "${COMPATIBILITY}"
 test_expect_found 'Potential WordPress collisions' "${WP_COLLISION_RISK}"
 
 echo 'https://github.com/creativecommons/tech-support/issues/1433'
-test_expect_code 404 'Rewrite full valid paths' "${ISSUE1433}"
+test_expect_code 404 'Rewrite requires full valid paths' "${ISSUE1433}"
 
 echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/571'
 test_expect_found 'Default versions - current' "${DEFAULT_VER_CURRENT}"
