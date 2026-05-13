@@ -21,6 +21,15 @@ E107="$(printf "\e[107m")"    # background: bright white
 declare -i FAILURES=0
 TARGET_HOST="${1:-http://localhost:8080}"
 
+NO_INDEX_DIRS='
+/licenses/sa/2.0/
+/licenses/nd/2.0/
+/licenses/nd-nc/2.0/
+/licenses/nc/2.0/
+/licenses/nc-sa/2.0/
+/cc-legal-tools/
+'
+
 ENSURE_LOWERCASE='
 /LiCeNsEs/By/4.0/DeEd.En
 /lIcEnSeS/bY/2.0/uK/
@@ -210,7 +219,6 @@ SELECT_TOOLS_RDF='
 /publicdomain/zero/1.0/
 '
 
-
 #### FUNCTIONS ################################################################
 
 
@@ -221,7 +229,7 @@ print_header() {
 
 
 test_expect_found() {
-    # Success is 202, 301=>202, or 302=>202
+    # Success is 200, 301=>200, or 302=>200
     local _code _header _http _location _redirect _result _path _paths _url
     _header="${1}"
     _paths="${2}"
@@ -268,12 +276,12 @@ test_expect_found() {
 }
 
 
-test_expect_missing() {
-    # Success is 404
-    local _code _header _http _location _result _path _paths _url
-    _header="${1}"
-    _paths="${2}"
-    print_header "Test expect missing: ${_header}"
+test_expect_code() {
+    local _code _expected_code _header _http _result _path _paths _url
+    _expected_code="${1}"
+    _header="${2}"
+    _paths="${3}"
+    print_header "Test expect code ${_expected_code}: ${_header}"
     for _path in ${_paths}
     do
         _url="${TARGET_HOST}${_path}"
@@ -285,8 +293,8 @@ test_expect_missing() {
             | awk '/^HTTP/ {print $2}' \
             | tr -d '[:cntrl:]')
         case "${_code}" in
-            404) echo -n "${E92}";;
-              *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
+            "${_expected_code}") echo -n "${E92}";;
+            *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
         esac
         printf "%s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}"
     done
@@ -295,6 +303,7 @@ test_expect_missing() {
 
 
 test_expect_rdf() {
+    # Success is 303=>200
     local _code _header _http _location _redirect _result _path _paths _url
     _header="${1}"
     _paths="${2}"
@@ -357,6 +366,8 @@ then
     echo
 fi
 
+test_expect_code 403 'Directories without index' "${NO_INDEX_DIRS}"
+
 test_expect_found 'Ensure lowercase' "${ENSURE_LOWERCASE}"
 
 test_expect_found 'Alternate language codes' "${ALT_LANG_CODES}"
@@ -373,7 +384,7 @@ test_expect_found 'Compatibility' "${COMPATIBILITY}"
 test_expect_found 'Potential WordPress collisions' "${WP_COLLISION_RISK}"
 
 echo 'https://github.com/creativecommons/tech-support/issues/1433'
-test_expect_missing 'Rewrite full valid paths' "${ISSUE1433}"
+test_expect_code 404 'Rewrite full valid paths' "${ISSUE1433}"
 
 echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/571'
 test_expect_found 'Default versions - current' "${DEFAULT_VER_CURRENT}"
