@@ -1,18 +1,34 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -o errexit
 set -o errtrace
 set -o nounset
 
-# https://en.wikipedia.org/wiki/ANSI_escape_code
-E0="$(printf     "\e[0m")"    # reset
-E30="$(printf "\e[30m")"      # black foreground
-E31="$(printf   "\e[31m")"    # red foreground
-E32="$(printf   "\e[32m")"    # green foreground
-E90="$(printf   "\e[90m")"    # bright black foreground
-E92="$(printf   "\e[92m")"    # bright green foreground
-E107="$(printf "\e[107m")"    # bright white background
+# shellcheck disable=SC2154
+trap '_es=${?};
+    printf "${0}: line ${LINENO}: \"${BASH_COMMAND}\"";
+    printf " exited with a status of ${_es}\n";
+    exit ${_es}' ERR
 
+# https://en.wikipedia.org/wiki/ANSI_escape_code
+E0="$(printf "\e[0m")"        # reset
+E30="$(printf "\e[30m")"      # foreground: black
+E31="$(printf "\e[31m")"      # foreground: red
+E35="$(printf "\e[35m")"      # foreground: magenta
+E36="$(printf "\e[36m")"      # foreground: cyan
+E92="$(printf "\e[92m")"      # foreground: bright green
+E94="$(printf "\e[94m")"      # foreground: bright blue
+E107="$(printf "\e[107m")"    # background: bright white
+declare -i FAILURES=0
 TARGET_HOST="${1:-http://localhost:8080}"
+
+NO_INDEX_DIRS='
+/licenses/sa/2.0/
+/licenses/nd/2.0/
+/licenses/nd-nc/2.0/
+/licenses/nc/2.0/
+/licenses/nc-sa/2.0/
+/cc-legal-tools/
+'
 
 ENSURE_LOWERCASE='
 /LiCeNsEs/By/4.0/DeEd.En
@@ -48,7 +64,7 @@ ISSUE236='
 '
 
 # sorted with: sort -t'/' -V -k6 -k7 -k5
-ISSUE444_FULL='
+ISSUE444='
 /licenses/by-nc-sa/1.0/il/
 /licenses/by-nc/1.0/il/
 /licenses/by-nd-nc/1.0/il/
@@ -147,13 +163,6 @@ ISSUE444_FULL='
 /licenses/by/3.0/za/
 '
 
-ISSUE444_PART='
-/licenses/by-nc-sa/1.0/il/
-/licenses/by-nc-nd/2.0/uk/
-/licenses/by-nc-nd/2.5/mk/
-/licenses/by/3.0/am/
-'
-
 COMPATIBILITY='
 /licenses/publicdomain/
 /licenses/nc-nd/1.0/
@@ -172,7 +181,7 @@ ISSUE1433='
 
 # Found via:
 # ./wpcli.sh db query 'SELECT post_status, post_name, guid FROM wp_posts WHERE guid LIKE "http://localhost:8080/license%";'
-POTENTIAL_WP_COLLISIONS='
+WP_COLLISION_RISK='
 /license-status/upcoming/2007/08/hong-kong/
 /license-status/upcoming/2007/08/thailand/
 '
@@ -180,104 +189,215 @@ POTENTIAL_WP_COLLISIONS='
 # /license-status/upcoming/weblog/2009/11/20/weblog/19275
 # /license-status/upcoming/weblog/2009/11/20/weblog/19275
 
+DEFAULT_VER_CURRENT='
+/publicdomain/zero/
+/publicdomain/zero
+/publicdomain/mark/
+/licenses/by/
+/licenses/by-sa/
+/licenses/by-nd/
+/licenses/by-nd-nc/
+/licenses/by-nc/
+/licenses/by-nc-sa/
+/licenses/by-nc-nd
+'
+DEFAULT_VER_RETIRED='
+/publicdomain/certification/
+/licenses/sampling/
+/licenses/sampling+/
+/licenses/sa/
+/licenses/nd-nc/
+/licenses/nc/
+/licenses/nc-sampling+/
+/licenses/nc-sa/
+/licenses/devnations/
+/licenses/devnations
+'
+
+SELECT_TOOLS_RDF='
+/licenses/by/4.0/
+/publicdomain/zero/1.0/
+'
+
 #### FUNCTIONS ################################################################
 
 
-header() {
-    # Print 80 character wide black on white heading with time
+print_header() {
+    # Print 80 character wide black on bright white heading with time
     printf "${E30}${E107}# %-69s$(date '+%T') ${E0}\n" "${@}"
 }
 
 
-test1_urls() {
-    local _location _result _path _paths _url
+test_expect_found() {
+    # Success is 200, 301=>200, or 302=>200
+    local _code _header _http _location _redirect _result _path _paths _url
     _header="${1}"
     _paths="${2}"
-    header "${_header}"
+    print_header "Test expect found: ${_header}"
     for _path in ${_paths}
     do
         _url="${TARGET_HOST}${_path}"
-        _result=$(http --headers --pretty none "${_url}?")
-        _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
-        case ${_code} in
-            200) printf "${E92}";;
-            301) printf "${E32}";;
-            310) printf "${E32}";;
-              *) printf "${E31}";;
+        _result=$(http --headers --pretty none "${_url}")
+        _http=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $1}' \
+            | tr -d '[:cntrl:]')
+        _code=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $2}' \
+            | tr -d '[:cntrl:]')
+        _redirect=''
+        case "${_code}" in
+            200) echo -n "${E92}";;
+            301) echo -n "${E36}"; _redirect="${E36}";;
+            302) echo -n "${E94}"; _redirect="${E94}";;
+              *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
         esac
-        printf "%-11s  %s${E0}\n" "HTTP/1.1 ${_code}" "${_url}"
-        if [[ "${_result}" =~ 301 ]]
+        printf "%s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}"
+        if [[ -n "${_redirect}" ]]
         then
-            _result=$(http --all --follow --headers --pretty none "${_url}")
+            _result=$(http --all --follow --headers --pretty none \
+                "${_url}")
             _location=$(echo "${_result}" \
                 | awk '/^Location:/ {print $2}' \
-                | tail -n1)
+                | tail -n1 \
+                | tr -d '[:cntrl:]')
             _code=$(echo "${_result}" \
                 | awk '/^HTTP/ {print $2}' \
-                | tail -n1)
-            case ${_code} in
-                200) printf "${E92}";;
-                301) printf "${E32}";;
-                310) printf "${E32}";;
-                  *) printf "${E31}";;
+                | tail -n1 \
+                | tr -d '[:cntrl:]')
+            echo -n "${_redirect}>>>>>>>>${E0}"
+            case "${_code}" in
+                200) echo -n "${E92}";;
+                  *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
             esac
-            printf "%-11s  %s${E0}\n" ">>>>>>>> ${_code}" "${_location}"
+            printf "  %s  %s${E0}\n" "${_code}" "${_location}"
         fi
     done
     echo
 }
 
 
-test2_urls() {
-    local _location _result _path _paths _url
-    _header="${1}"
-    _paths="${2}"
-    header "${_header}"
+test_expect_code() {
+    local _code _expected_code _header _http _result _path _paths _url
+    _expected_code="${1}"
+    _header="${2}"
+    _paths="${3}"
+    print_header "Test expect code ${_expected_code}: ${_header}"
     for _path in ${_paths}
     do
         _url="${TARGET_HOST}${_path}"
-        _result=$(http --headers --pretty none "${_url}?")
-        _code=$(echo "${_result}" | awk '/^HTTP/ {print $2}')
-        case ${_code} in
-            404) printf "${E92}";;
-            301) printf "${E32}";;
-            310) printf "${E32}";;
-              *) printf "${E31}";;
+        _result=$(http --headers --pretty none "${_url}")
+        _http=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $1}' \
+            | tr -d '[:cntrl:]')
+        _code=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $2}' \
+            | tr -d '[:cntrl:]')
+        case "${_code}" in
+            "${_expected_code}") echo -n "${E92}";;
+            *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
         esac
-        printf "%-11s  %s${E0}\n" "HTTP/1.1 ${_code}" "${_url}"
-        if [[ "${_result}" =~ 301 ]]
+        printf "%s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}"
+    done
+    echo
+}
+
+
+test_expect_rdf() {
+    # Success is 303=>200
+    local _code _header _http _location _redirect _result _path _paths _url
+    _header="${1}"
+    _paths="${2}"
+    print_header "Test expect RDF/XML: ${_header}"
+    for _path in ${_paths}
+    do
+        _url="${TARGET_HOST}${_path}"
+        _result=$(http --headers --pretty none "${_url}" \
+            'Accept: application/rdf+xml')
+        _http=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $1}' \
+            | tr -d '[:cntrl:]')
+        _code=$(echo "${_result}" \
+            | awk '/^HTTP/ {print $2}' \
+            | tr -d '[:cntrl:]')
+        _redirect=''
+        case "${_code}" in
+            303) echo -n "${E35}"; _redirect="${E35}";;
+              *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
+        esac
+        printf "%s  %s  %s  %s${E0}\n" "${_http}" "${_code}" "${_url}" \
+            'Accept: application/rdf+xml'
+        unset _result
+
+        if [[ -n "${_redirect}" ]]
         then
-            _result=$(http --all --follow --headers --pretty none "${_url}")
+            _result=$(http --all --follow --headers --pretty none "${_url}" \
+                'Accept: application/rdf+xml')
             _location=$(echo "${_result}" \
                 | awk '/^Location:/ {print $2}' \
-                | tail -n1)
+                | tr -d '[:cntrl:]')
             _code=$(echo "${_result}" \
                 | awk '/^HTTP/ {print $2}' \
-                | tail -n1)
-            case ${_code} in
-                200) printf "${E92}";;
-                301) printf "${E32}";;
-                310) printf "${E32}";;
-                  *) printf "${E31}";;
+                | tail -n1 \
+                | tr -d '[:cntrl:]')
+            _content_type=$(echo "${_result}" \
+                | awk '/^Content-Type:/ {print $2}' \
+                | tail -n1 \
+                | tr -d '[:cntrl:]')
+            echo -n "${_redirect}>>>>>>>>${E0}"
+            case "${_code}" in
+                200) echo -n "${E92}";;
+                  *) echo -n "${E31}"; FAILURES=$((FAILURES+1));;
             esac
-            printf "%-11s  %s${E0}\n" ">>>>>>>> ${_code}" "${_location}"
+            printf "  %s  %s  %s${E0}\n" "${_code}" "${_location}" \
+                "${_content_type}"
         fi
     done
     echo
 }
+
+
+#### MAIN #####################################################################
 
 
 if [[ "${TARGET_HOST}" == 'http://localhost:8080' ]]
 then
+    print_header 'Restarting Docker service'
     docker compose restart index-web
+    echo
 fi
 
+test_expect_code 403 'Directories without index' "${NO_INDEX_DIRS}"
 
-test1_urls 'Ensure lowercase' "${ENSURE_LOWERCASE}"
-test1_urls 'Alternate language codes' "${ALT_LANG_CODES}"
-test1_urls 'Issue 444 - all URLs' "${ISSUE444_FULL}"
-#test1_urls 'Issue 444 - selected URLs' "${ISSUE444_PART}"
-test1_urls 'Issue 236' "${ISSUE236}"
-test1_urls 'Compatibility' "${COMPATIBILITY}"
-test1_urls 'Potential WordPress collisions' "${POTENTIAL_WP_COLLISIONS}"
-test2_urls 'Issue 1433 (path after path)' "${ISSUE1433}"
+test_expect_found 'Ensure lowercase' "${ENSURE_LOWERCASE}"
+
+test_expect_found 'Alternate language codes' "${ALT_LANG_CODES}"
+
+echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/444'
+test_expect_found 'Working default language index.html' "${ISSUE444}"
+
+echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/236'
+test_expect_found 'Fail gracefully when deed not found' "${ISSUE236}"
+
+echo 'https://github.com/creativecommons/creativecommons.org/issues/1431'
+test_expect_found 'Compatibility' "${COMPATIBILITY}"
+
+test_expect_found 'Potential WordPress collisions' "${WP_COLLISION_RISK}"
+
+echo 'https://github.com/creativecommons/tech-support/issues/1433'
+test_expect_code 404 'Rewrite requires full valid paths' "${ISSUE1433}"
+
+echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/571'
+test_expect_found 'Default versions - current' "${DEFAULT_VER_CURRENT}"
+
+echo 'https://github.com/creativecommons/cc-legal-tools-app/issues/571'
+test_expect_found 'Default versions - retired' "${DEFAULT_VER_RETIRED}"
+
+echo 'https://github.com/creativecommons/sre-salt-prime/issues/253'
+test_expect_rdf 'Support request RDF/XML' "${SELECT_TOOLS_RDF}"
+
+if (( FAILURES > 0 ))
+then
+    echo
+    echo "${E31}Failures: ${FAILURES}${E0}" 1>&2
+    exit 1
+fi
