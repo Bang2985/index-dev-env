@@ -58,16 +58,19 @@ EXPOSE 80
 
 
 # Enable Apache modules
-RUN a2enmod headers
-RUN a2enmod php8.2
-RUN a2enmod rewrite
+RUN a2enmod headers \
+    && a2enmod php8.2 \
+    && a2enmod proxy \
+    && a2enmod proxy_http \
+    && a2enmod rewrite \
+    && a2enmod ssl
 
 # Configure PHP
 COPY config/90-local.ini /etc/php/8.2/apache2/conf.d/
 
 # Install Composer
 # https://getcomposer.org/doc/00-intro.md#installation-linux-unix-macos
-RUN curl -sS https://getcomposer.org/installer \
+RUN curl --silent --show-error https://getcomposer.org/installer \
     | php -- --install-dir=/usr/local/bin --filename=composer
 
 # Create compose directory for www-data
@@ -77,9 +80,9 @@ RUN chown -R www-data:www-data /var/www/.composer
 
 # Install WordPress CLI (WP-CLI)
 # https://wp-cli.org/#installing
-RUN curl -L \
+RUN curl --silent --show-error --location \
     https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar \
-    -o wp-cli.phar \
+    --output wp-cli.phar \
     && chmod +x wp-cli.phar \
     && mv wp-cli.phar /usr/local/bin/wp
 
@@ -102,9 +105,9 @@ RUN wp core download --version=$WP_VERSION
 # Add WordPress basic configuration
 # 1) Download wp-config-docker.php for use as wp-config.php. Friendly view at:
 # https://github.com/docker-library/wordpress/blob/master/latest/php8.2/apache/wp-config-docker.php
-RUN curl -L \
+RUN curl --silent --show-error --location \
     https://raw.githubusercontent.com/docker-library/wordpress/master/latest/php8.2/apache/wp-config-docker.php \
-    -o /var/www/index/wp-config.php
+    --output /var/www/index/wp-config.php
 
 
 # 2) Use awk to replace all instances of "put your unique phrase here" with a
